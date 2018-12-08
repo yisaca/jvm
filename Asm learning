@@ -1,0 +1,419 @@
+
+Asm learning 外篇
+文档链接：http://web.cs.ucla.edu/~msb/cs239-tutorial/
+
+文件位置
+
+/Users/muan/Documents/work/jvm-machine/asm_learn/ASM-tutorial
+
+asm-all-6.0_BETA.jar位置
+
+/Users/muan/Documents/work/asm-all-6.0_BETA.jar
+
+通过asm工具修改Test.class实现对Test.java中方法的拦截
+
+Test.java源码
+
+public class Test
+{
+    public static void main(String[] args) {
+        printOne();
+        printOne();
+        printTwo();
+    }
+
+    public static void printOne() {
+        System.out.println("Hello World");
+    }
+
+    public static void printTwo() {
+        printOne();
+        printOne();
+    }
+}
+期望通过asm工具修改Test.class的字节码，实现方法调用的拦截，效果等同于TestInstrumented.java
+
+public class TestInstrumented
+{
+    public static void main(String[] args) {
+        System.err.println("CALL printOne");
+        printOne();
+        System.err.println("RETURN printOne");
+
+        System.err.println("CALL printOne");
+        printOne();
+        System.err.println("RETURN printOne");
+
+        System.err.println("CALL printTwo");
+        printTwo();
+        System.err.println("RETURN printTwo");
+    }
+
+    public static void printOne() {
+        System.err.println("CALL println");
+        System.out.println("Hello World");
+        System.err.println("RETURN println");
+    }
+
+    public static void printTwo() {
+        System.err.println("CALL printOne");
+        printOne();
+        System.err.println("RETURN printOne");
+
+        System.err.println("CALL printOne");
+        printOne();
+        System.err.println("RETURN printOne");
+    }
+}
+1、编译TestInstrumented.java
+
+javac TestInstrumented.java
+
+IMAGE
+
+2、通过asm的ASMifier为TestInstrumented生成TestInstrumentedDump.java文件
+
+java -cp .:/Users/muan/Documents/work/asm-all-6.0_BETA.jar org.objectweb.asm.util.ASMifier TestInstrumented
+这个命令的输出是一段asm代码，asm用来生成TestInstrumented.class的asm代码。
+
+import java.util.*;
+import org.objectweb.asm.*;
+
+public class TestInstrumentedDump implements Opcodes {
+
+    public static byte[] dump() throws Exception {
+
+        ClassWriter cw = new ClassWriter(0);
+        FieldVisitor fv;
+        MethodVisitor mv;
+        AnnotationVisitor av0;
+
+        cw.visit(V1_8, ACC_PUBLIC + ACC_SUPER, "TestInstrumented", null, "java/lang/Object", null);
+
+        {
+            mv = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(1, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "TestInstrumented", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "TestInstrumented", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printTwo");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "TestInstrumented", "printTwo", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printTwo");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "printOne", "()V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL println");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("Hello World");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN println");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 0);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "printTwo", "()V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "TestInstrumented", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "TestInstrumented", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 0);
+            mv.visitEnd();
+        }
+        cw.visitEnd();
+
+        return cw.toByteArray();
+    }
+}
+从上面的代码段可以看出来，System.err.println("CALL printOne");这段代码对应到ASMifier是这样的：
+
+mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+mv.visitLdcInsn("CALL printOne");
+mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+那么问题来了，怎样才能通过asm代码为Test.java的方法增强拦截呢？
+
+增强Test.java
+
+我们知道生成原来的Test.class文件对应的asm程序应该是这样的：
+
+生成原有的class文件所需要的asm程序
+
+java -cp .:/Users/muan/Documents/work/asm-all-6.0_BETA.jar org.objectweb.asm.util.ASMifier Test
+import java.util.*;
+import org.objectweb.asm.*;
+
+public class TestDump implements Opcodes {
+
+    public static byte[] dump() throws Exception {
+
+        ClassWriter cw = new ClassWriter(0);
+        FieldVisitor fv;
+        MethodVisitor mv;
+        AnnotationVisitor av0;
+
+        cw.visit(V1_8, ACC_PUBLIC + ACC_SUPER, "Test", null, "java/lang/Object", null);
+
+        {
+            mv = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(1, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
+            mv.visitCode();
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printTwo", "()V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(0, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "printOne", "()V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("Hello World");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 0);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "printTwo", "()V", null, null);
+            mv.visitCode();
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+        }
+        cw.visitEnd();
+
+        return cw.toByteArray();
+    }
+}
+期望地能够生成增强后的class文件所需要的asm程序：
+
+import java.util.*;
+import org.objectweb.asm.*;
+
+public class TestDump implements Opcodes {
+
+    public static byte[] dump() throws Exception {
+
+        ClassWriter cw = new ClassWriter(0);
+        FieldVisitor fv;
+        MethodVisitor mv;
+        AnnotationVisitor av0;
+
+        cw.visit(V1_8, ACC_PUBLIC + ACC_SUPER, "Test", null, "java/lang/Object", null);
+
+        {
+            mv = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL <init>");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN <init>");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(3, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printTwo");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printTwo", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printTwo");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "printOne", "()V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("Hello World");
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL println");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN println");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(4, 0);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "printTwo", "()V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("CALL printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Test", "printOne", "()V", false);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("RETURN printOne");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 0);
+            mv.visitEnd();
+        }
+        cw.visitEnd();
+
+        return cw.toByteArray();
+    }
+}
+实现
+
+我们需要有一个工具，能够读取原来的AAA的clss文件，并且在生成对应的AAADump.java程序的dump方法里有机会增加我们的增强代码：
+
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
+
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
+
+public class Instrumenter {
+    public static void main(final String args[]) throws Exception {
+        FileInputStream is = new FileInputStream(args[0]);
+        byte[] b;
+
+        ClassReader cr = new ClassReader(is);
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        ClassVisitor cv = new ClassAdapter(cw);
+        cr.accept(cv, 0);
+        b = cw.toByteArray();
+
+        FileOutputStream fos = new FileOutputStream(args[1]);
+        fos.write(b);
+        fos.close();
+    }
+}
+
+class ClassAdapter extends ClassVisitor implements Opcodes {
+
+    public ClassAdapter(final ClassVisitor cv) {
+        super(ASM5, cv);
+    }
+
+    @Override
+    public MethodVisitor visitMethod(final int access, final String name,
+            final String desc, final String signature, final String[] exceptions) {
+        MethodVisitor mv = cv.visitMethod(access, name, desc, signature, exceptions);
+        return mv == null ? null : new MethodAdapter(mv);
+    }
+}
+
+class MethodAdapter extends MethodVisitor implements Opcodes {
+
+    public MethodAdapter(final MethodVisitor mv) {
+        super(ASM5, mv);
+    }
+
+    @Override
+    public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
+        /* System.err.println("CALL" + name); */
+        mv.visitFieldInsn(GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+        mv.visitLdcInsn("CALL " + name);
+        mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+
+        /* do call */
+        mv.visitMethodInsn(opcode, owner, name, desc, itf);
+
+        /* System.err.println("RETURN" + name);  */
+        mv.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+        mv.visitLdcInsn("RETURN " + name);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+    }
+}
+javac -cp /Users/muan/Documents/work/asm-all-6.0_BETA.jar Copy.java
+
+javac -cp /Users/muan/Documents/work/asm-all-6.0_BETA.jar Instrumenter.java
+
+
+java -cp .:/Users/muan/Documents/work/asm-all-6.0_BETA.jar Instrumenter Test.class.bak Test.class
+
+java -cp .:/Users/muan/Documents/work/asm-all-6.0_BETA.jar Copy Copy.class Copy2.class
