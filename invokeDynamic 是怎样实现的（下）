@@ -1,0 +1,471 @@
+https://time.geekbang.org/column/article/12574
+
+
+https://zhuanlan.zhihu.com/p/26389041
+
+https://zhuanlan.zhihu.com/p/30936412
+
+
+非常优秀：https://www.infoq.com/articles/Invokedynamic-Javas-secret-weapon
+
+# 术语
+* 调用点 callsite
+* 启动方法 bootstrap method
+* 方法链
+* LookUp的创建位置决定了方法句柄的访问权限
+* MethodHandle的两种创建方式
+* 方法句柄（MethodHandle）
+* 方法句柄的类型
+* 方法句柄的权限检查在创建时进行，避免了调用时的检查，方法句柄的访问权限取决于LookUp对象的创建位置
+
+
+
+# Method Handles and invokedynamic
+The invokedynamic uses method handles via the bootstrap methods mechanism. Unlike invokevirtual, invokedynamic instructions have no receiver object. Instead, they act like invokestatic, and use a BSM to return an object of type CallSite. This object contains a method handle (called the "target") that represents the method that is to be executed as the result of the invokedynamic instruction.
+
+# 样例代码
+```
+public class InvokeDynamicCreator {
+
+    public static void main(final String[] args) throws Exception {
+        final String outputClassName = "kathik/Dynamic";
+        try (FileOutputStream fos
+                = new FileOutputStream(new File("target/classes/" + outputClassName + ".class"))) {
+            fos.write(dump(outputClassName, "bootstrap", "()V"));
+        }
+    }
+
+    public static byte[] dump(String outputClassName, String bsmName, String targetMethodDescriptor)
+            throws Exception {
+        final ClassWriter cw = new ClassWriter(0);
+        MethodVisitor mv;
+
+        // Setup the basic metadata for the bootstrap class
+        cw.visit(V1_7, ACC_PUBLIC + ACC_SUPER, outputClassName, null, "java/lang/Object", null);
+
+        // Create a standard void constructor
+        mv = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+        mv.visitCode();
+        mv.visitVarInsn(ALOAD, 0);
+        mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V");
+        mv.visitInsn(RETURN);
+        mv.visitMaxs(1, 1);
+        mv.visitEnd();
+
+        // Create a standard main method
+        mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
+        mv.visitCode();
+        MethodType mt = MethodType.methodType(CallSite.class, MethodHandles.Lookup.class, String.class,
+                MethodType.class);
+        Handle bootstrap = new Handle(Opcodes.H_INVOKESTATIC, "kathik/InvokeDynamicCreator", bsmName,
+                mt.toMethodDescriptorString());
+        mv.visitInvokeDynamicInsn("runDynamic", targetMethodDescriptor, bootstrap);
+        mv.visitInsn(RETURN);
+        mv.visitMaxs(0, 1);
+        mv.visitEnd();
+
+        cw.visitEnd();
+
+        return cw.toByteArray();
+    }
+
+    private static void targetMethod() {
+        System.out.println("Hello World!");
+    }
+
+    public static CallSite bootstrap(MethodHandles.Lookup caller, String name, MethodType type) throws NoSuchMethodException, IllegalAccessException {
+        final MethodHandles.Lookup lookup = MethodHandles.lookup();
+        // Need to use lookupClass() as this method is static
+        final Class<?> currentClass = lookup.lookupClass();
+        final MethodType targetSignature = MethodType.methodType(void.class);
+        final MethodHandle targetMH = lookup.findStatic(currentClass, "targetMethod", targetSignature);
+        return new ConstantCallSite(targetMH.asType(type));
+    }
+}
+```
+
+# invokedynamic（JSR292）
+invokedynamic允许程序开发人员自己来定义一个方法的链接(It allows developers to define the way how to resolve their method/linkage), JVM再来负责去优化用户的链接方法。这里潜在的意思是说作为动态语言解析器，你自己来负责你生成的函数调用的链接方法，你比我JVM有更多的knowledge去做这个事情，我JVM之后只负责帮你去优化你的链接方法。
+
+这个方法的调用模式简单说就是
+
+* When JVM sees an invokedynamic instruction, it locates the corresponding bootstrap method in the class, and executes the bootstrap method.
+* After executing the bootstrap method, a CallSite that is linked with a MethodHandle is returned;
+* The invocation on the CallSite later will be transferred to real methods via a number of MethodHandles.
+
+
+
+# 概述
+* 在运行过程中，每一条invokeDynamic指令将绑定一个调用点（CallSite），并且调用该调用点所链接的方法句柄
+* 在第一次执行invokeDynamic指令时，虚拟机会调用该指令所对应的启动方法来生成调用点，并将该调用点绑定至该invokeDynamic指令。
+* 在字节码中，启动方法（BootStrap Method）是由方法句柄来指定的
+
+
+# Circuit.java
+```
+import java.lang.invoke.*;
+
+class Horse {
+  public void race() {
+    System.out.println("Horse.race()"); 
+  }
+}
+
+class Deer {
+  public void race() {
+    System.out.println("Deer.race()");
+  }
+}
+
+// javac Circuit.java
+// java Circuit
+public class Circuit {
+
+  public static void startRace(Object obj) {
+    // aload obj
+    // invokedynamic race()
+  }
+
+  public static void main(String[] args) {
+    startRace(new Horse());
+    // startRace(new Deer());
+  }
+  
+  public static CallSite bootstrap(MethodHandles.Lookup l, String name, MethodType callSiteType) throws Throwable {
+    MethodHandle mh = l.findVirtual(Horse.class, name, MethodType.methodType(void.class));
+    return new ConstantCallSite(mh.asType(callSiteType));
+  }
+}
+```
+
+## CircuitDump.java
+
+```
+
+import java.util.*;
+import org.objectweb.asm.*;
+
+public class CircuitDump implements Opcodes {
+
+    public static byte[] dump() throws Exception {
+
+        ClassWriter cw = new ClassWriter(0);
+        FieldVisitor fv;
+        MethodVisitor mv;
+        AnnotationVisitor av0;
+
+        cw.visit(V1_8, ACC_PUBLIC + ACC_SUPER, "Circuit", null, "java/lang/Object", null);
+
+        cw.visitInnerClass("java/lang/invoke/MethodHandles$Lookup", "java/lang/invoke/MethodHandles", "Lookup",
+                ACC_PUBLIC + ACC_FINAL + ACC_STATIC);
+
+        {
+            mv = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(1, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "startRace", "(Ljava/lang/Object;)V", null, null);
+            mv.visitCode();
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(0, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
+            mv.visitCode();
+            mv.visitTypeInsn(NEW, "Horse");
+            mv.visitInsn(DUP);
+            mv.visitMethodInsn(INVOKESPECIAL, "Horse", "<init>", "()V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Circuit", "startRace", "(Ljava/lang/Object;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "bootstrap",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
+                    null, new String[] { "java/lang/Throwable" });
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitLdcInsn(Type.getType("LHorse;"));
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/Void", "TYPE", "Ljava/lang/Class;");
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodType", "methodType",
+                    "(Ljava/lang/Class;)Ljava/lang/invoke/MethodType;", false);
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findVirtual",
+                    "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;",
+                    false);
+            mv.visitVarInsn(ASTORE, 3);
+            mv.visitTypeInsn(NEW, "java/lang/invoke/ConstantCallSite");
+            mv.visitInsn(DUP);
+            mv.visitVarInsn(ALOAD, 3);
+            mv.visitVarInsn(ALOAD, 2);
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "asType",
+                    "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/ConstantCallSite", "<init>",
+                    "(Ljava/lang/invoke/MethodHandle;)V", false);
+            mv.visitInsn(ARETURN);
+            mv.visitMaxs(4, 4);
+            mv.visitEnd();
+        }
+        cw.visitEnd();
+
+        return cw.toByteArray();
+    }
+}
+
+```
+## HorseDump.java
+
+```
+import java.util.*;
+import org.objectweb.asm.*;
+
+public class HorseDump implements Opcodes {
+
+    public static byte[] dump() throws Exception {
+
+        ClassWriter cw = new ClassWriter(0);
+        FieldVisitor fv;
+        MethodVisitor mv;
+        AnnotationVisitor av0;
+
+        cw.visit(V1_8, ACC_SUPER, "Horse", null, "java/lang/Object", null);
+
+        {
+            mv = cw.visitMethod(0, "<init>", "()V", null, null);
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(1, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC, "race", "()V", null, null);
+            mv.visitCode();
+            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+            mv.visitLdcInsn("Horse.race()");
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 1);
+            mv.visitEnd();
+        }
+        cw.visitEnd();
+
+        return cw.toByteArray();
+    }
+}
+```
+
+# ASMHelper
+```
+import java.io.IOException;
+import java.lang.invoke.*;
+import java.nio.file.*;
+
+import org.objectweb.asm.*;
+
+// javac -cp /path/to/asm-all-6.0_BETA.jar:. ASMHelper.java
+// java -cp /path/to/asm-all-6.0_BETA.jar:. ASMHelper
+// java Circuit
+public class ASMHelper implements Opcodes {
+
+    private static class MyMethodVisitor extends MethodVisitor {
+
+        private static final String BOOTSTRAP_CLASS_NAME = Circuit.class.getName().replace('.', '/');
+        private static final String BOOTSTRAP_METHOD_NAME = "bootstrap";
+        private static final String BOOTSTRAP_METHOD_DESC = MethodType
+            .methodType(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class)
+            .toMethodDescriptorString();
+
+        private static final String TARGET_METHOD_NAME = "race";
+        private static final String TARGET_METHOD_DESC = "(Ljava/lang/Object;)V";
+
+        public final MethodVisitor mv;
+
+        public MyMethodVisitor(int api, MethodVisitor mv) {
+            super(api);
+            this.mv = mv;
+        }
+
+        @Override
+        public void visitCode() {
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            Handle h = new Handle(H_INVOKESTATIC, BOOTSTRAP_CLASS_NAME, BOOTSTRAP_METHOD_NAME, BOOTSTRAP_METHOD_DESC, false);
+            mv.visitInvokeDynamicInsn(TARGET_METHOD_NAME, TARGET_METHOD_DESC, h);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(1, 1);
+            mv.visitEnd();
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        ClassReader cr = new ClassReader("invokeDynamic.Circuit");
+        ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+        ClassVisitor cv = new ClassVisitor(ASM6, cw) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String descriptor, String signature,
+                                             String[] exceptions) {
+                MethodVisitor visitor = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if ("startRace".equals(name)) {
+                    return new MyMethodVisitor(ASM6, visitor);
+                }
+                return visitor;
+            }
+        };
+        cr.accept(cv, ClassReader.SKIP_FRAMES);
+        Files.write(Paths.get("Circuit.class"), cw.toByteArray());
+    }
+```
+
+
+
+## BOOTSTRAP_METHOD_DESC
+```
+BOOTSTRAP_METHOD_DESC = (Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;
+```
+
+
+
+# 通过ASMHelper修改修改Circuit.class文件，手动调用invokeDynamic
+
+```
+javac -cp /Users/muan/Documents/work/asm-all-6.0_BETA.jar:. ASMHelper.java
+
+java -cp /Users/muan/Documents/work/asm-all-6.0_BETA.jar:. ASMHelper
+
+```
+
+# 执行过之后可以看下新的CircuitDump.java 
+
+
+```
+java -cp .:/Users/muan/Documents/work/asm-all-6.0_BETA.jar org.objectweb.asm.util.ASMifier Circuit
+```
+
+```
+import java.util.*;
+import org.objectweb.asm.*;
+
+public class CircuitDump implements Opcodes {
+
+    public static byte[] dump() throws Exception {
+
+        ClassWriter cw = new ClassWriter(0);
+        FieldVisitor fv;
+        MethodVisitor mv;
+        AnnotationVisitor av0;
+
+        cw.visit(V1_8, ACC_PUBLIC + ACC_SUPER, "Circuit", null, "java/lang/Object", null);
+
+        cw.visitInnerClass("java/lang/invoke/MethodHandles$Lookup", "java/lang/invoke/MethodHandles", "Lookup",
+                ACC_PUBLIC + ACC_FINAL + ACC_STATIC);
+
+        {
+            mv = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(1, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "startRace", "(Ljava/lang/Object;)V", null, null);
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitInvokeDynamicInsn("race", "(Ljava/lang/Object;)V", new Handle(Opcodes.H_INVOKESTATIC, "Circuit",
+                    "bootstrap",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
+                    false), new Object[] {});
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(1, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
+            mv.visitCode();
+            mv.visitTypeInsn(NEW, "Horse");
+            mv.visitInsn(DUP);
+            mv.visitMethodInsn(INVOKESPECIAL, "Horse", "<init>", "()V", false);
+            mv.visitMethodInsn(INVOKESTATIC, "Circuit", "startRace", "(Ljava/lang/Object;)V", false);
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(2, 1);
+            mv.visitEnd();
+        }
+        {
+            mv = cw.visitMethod(ACC_PUBLIC + ACC_STATIC, "bootstrap",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
+                    null, new String[] { "java/lang/Throwable" });
+            mv.visitCode();
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitLdcInsn(Type.getType("LHorse;"));
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitFieldInsn(GETSTATIC, "java/lang/Void", "TYPE", "Ljava/lang/Class;");
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodType", "methodType",
+                    "(Ljava/lang/Class;)Ljava/lang/invoke/MethodType;", false);
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findVirtual",
+                    "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;",
+                    false);
+            mv.visitVarInsn(ASTORE, 3);
+            mv.visitTypeInsn(NEW, "java/lang/invoke/ConstantCallSite");
+            mv.visitInsn(DUP);
+            mv.visitVarInsn(ALOAD, 3);
+            mv.visitVarInsn(ALOAD, 2);
+            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "asType",
+                    "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false);
+            mv.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/ConstantCallSite", "<init>",
+                    "(Ljava/lang/invoke/MethodHandle;)V", false);
+            mv.visitInsn(ARETURN);
+            mv.visitMaxs(4, 4);
+            mv.visitEnd();
+        }
+        cw.visitEnd();
+
+        return cw.toByteArray();
+    }
+}
+```
+
+![IMAGE](quiver-image-url/692BB192F66AD893294C0091D5D6F1C1.jpg =1320x829)
+
+
+# 通过javap查看原有的class文件以及被ASM操纵后的class文件
+
+## 修改前
+```
+  public static void startRace(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)V
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=0, locals=1, args_size=1
+         0: return
+      LineNumberTable:
+        line 22: 0
+
+```
+
+## 修改后
+
+```
+
+  public static void startRace(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)V
+    flags: ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokedynamic #65,  0             // InvokeDynamic #0:race:(Ljava/lang/Object;)V
+         6: return
+```
+
+
+
+
