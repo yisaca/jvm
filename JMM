@@ -1,0 +1,287 @@
+https://yuque.antfin-inc.com/zfbplatformproject/rx0lup/mvnlra
+
+# 重排序
+* 数据依赖性仅针对单个处理器中执行的指令序列和单个线程中执行的操作，不同处理器之间和不同线程之间的数据依赖性不被编译器和处理器考虑。
+* as-if-serial
+
+# 程序顺序规则
+happens-before
+
+# 重排序对所线程的影响
+
+# 控制依赖关系
+
+
+# 猜测执行（Speculation）
+
+# Sequentially consitent 顺序一致性
+
+# 临界区 顺序一致性模型相同的内存视图
+
+# prezeroed memory
+
+# 未同步程序的执行特性
+未同步程序在顺序一致性模型中执行时，整体是无序的，其执行结果往往无法预知。
+
+# volatile
+
+![IMAGE](quiver-image-url/14D8480194695D9B56A68875E10D356A.jpg =611x249)
+
+
+# CompareAndSet
+```
+    public final int getAndAddInt(Object var1, long var2, int var4) {
+        int var5;
+        do {
+            var5 = this.getIntVolatile(var1, var2);
+        } while(!this.compareAndSwapInt(var1, var2, var5, var5 + var4));
+        return var5;}
+
+
+    UNSAFE_ENTRY(jboolean, Unsafe_CompareAndSwapInt(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jint e, jint x))
+        UnsafeWrapper("Unsafe_CompareAndSwapInt");
+        oop p = JNIHandles::resolve(obj);
+        jint* addr = (jint *) index_oop_from_field_offset_long(p, offset);
+        return (jint)(Atomic::cmpxchg(x, addr, e)) == e;
+    UNSAFE_END
+
+
+    Atomic::cmpxchg (jint exchange_value, volatile jint* dest, jint compare_value) {
+    // alternative for InterlockedCompareExchange int mp = os::is_MP();
+    __asm {
+    mov edx, dest
+    mov ecx, exchange_value 
+    mov eax, compare_value 
+    LOCK_IF_MP(mp)
+    cmpxchg dword ptr [edx], ecx
+        } 
+    }
+```
+
+
+# final 
+* 在构造函数内对一个 final 域的写入，与随后把这个被构造对象的引用赋值给一 个引用变量，这两个操作之间不能重排序。
+* 初次读一个包含 final 域的对象的引用，与随后初次读这个 final 域，这两个操 作之间不能重排序。
+
+## 写final域的重排序规则
+1、 在构造函数内对一个final域的写入，与随后把这个被构造函数对象的引用赋值给一个引用变量，这两个操作之间不能重排序
+2、 初次读一个包含final域的对象的引用，与随后初次读这个final域，这两个操作之间不能重排序。
+
+写final域的重排序规则禁止把final域的写重排序到构造函数之外。
+    JMM禁止编译器把final域的写重排序到构造函数之外
+    编译器会在final域的写之后，构造函数返回之前，插入一个StoreStore屏障。这个屏障禁止处理器把final域的写重排序到构造函数之外。
+    写final域的重排序规则可以确保：在对象引用为任意线程可见之前，对象的final域已经被正确初始化过了，而普通域不具备这个保证。
+    写普通域的操作被编译器重排序到了构造函数之外。
+    
+## 读final域的重排序规则
+* 在一个线程中，初次读对象引用与初次读该对象包含的final域，JMM禁止处理器重排序这两个操作。
+编译器会在读final域操作的前面插入一个LoadLoad屏障。
+* final域的重排序规则可以确保：在读一个对象的final域之前，一定先读包含这个final域的对象的引用。
+* 初次读对象引用与初次读该对象包含的final域，这两个操作之间存在间接依赖关系。一般地编译器和处理器
+都遵循这个规则，但有少数处理器不遵循间接依赖关系。导致普通成员域的读取被重排序到对象引用的读取之前。
+* 在读一个对象的final域之前，一定会先读包含 这个final域的对象的引用
+
+## 引用类型的写final域重排序
+* 在构造函数内对一个final引用的对象的成员域的写入与随后在构造函数外把这个被构造对象的引用赋值给另一个引用变量，这两个操作之间不能重排序。
+
+## final 引用不能从构造函数内逸出
+
+* 在引用变量为任意线程可见之前，该引用变量指向的对象的final域已经在构造函数中被正确初始化过了。
+* 在构造函数内部，不能让这个被构造对象的引用为其他线程可见，也就是对象引用不能在构造函数中“逸出”。
+
+
+## final域的内存实现
+* 写final域的重排序规则会要求译编器在final域的写之后，构造函数return 之前，插入一个StoreStore障屏
+* 读final域的重排序规则要求编译器读final域的操作前面插入一个LoadLoad屏障
+
+
+## 处理器内存模型
+* TSO: Total Store Ordering，放松程序中写-读操作的顺序
+* PSO: Partial Stroe Ordering，放松程序中写-读操作的顺序，继续放松程序中写-写操作的顺序
+* RMO: Relaxed Memory Ordering，放松写-读，写-写，继续放松程序中读-写和读-读操作的顺序
+
+![IMAGE](quiver-image-url/D57FB73EDE5D8465266DF1C5C9E27FAE.jpg =747x598)
+
+# JMM，处理器内存模型与顺序一致性内存模型之间的关系
+* JMM 是一个语言级的内存模型
+* 处理器内存模型是硬件级的内存模型
+* 顺序一致性内存模型是一个理论参考模型
+
+
+```
+class VolatileExample {
+    int a = 0;
+    volatile boolean flag = false;
+
+    public void writer() {
+        a = 1; // 1
+        flag = true; // 2
+    }
+
+    public void reader() {
+        if (flag) { // 3
+            int i = a; // 4
+        }
+    }
+}
+
+/**
+ * volatile read loadload loadstore
+ */
+
+class VolatileBarrierExample {
+    int a;
+    volatile int v1 = 1;
+    volatile int v2 = 2;
+
+    void readAndWrite() {
+        int i = v1; // 第一个volatile读
+        int j = v2; // 第二个volatiel读
+        a = i + j; // 普通鞋
+        v1 = i + 1; // 第一个volatile写
+        v2 = j * 2; // 第二个volatile写
+    }
+
+    // 其他方法
+}
+
+class MonitorExample {
+    int a = 0;
+
+    public synchronized void writer() { // 1
+        a++; // 2
+    } // 3
+
+    public synchronized void reader() { // 4
+        int i = a; // 5
+        // ......
+    }// 6
+}
+
+// AbstractQueuedSynchronizer
+class ReentrantLockExample {
+    int a = 0;
+    ReentrantLock lock = new ReentrantLock();
+
+    public void writer() { // 获取锁
+        lock.lock();
+        try {
+            a++;
+        } finally {
+            lock.unlock(); // 释放锁
+        }
+    }
+
+    public void reader() {
+        lock.lock();// 获取锁
+        try {
+            int i = a;
+            // ......
+        } finally {
+            lock.unlock(); // 释放锁
+        }
+    }
+}
+
+/**
+ * 1. ReentrantLock : lock() 2. FairSync : lock() 3. AbstractQueuedSynchronizer
+ * : acquire(int arg) 4. ReentrantLock : tryAcquire(int acquires)
+ */
+
+class LockExample {
+
+    protected final boolean tryAcquire(int acquires) {
+        final Thread current = Thread.currentThread();
+        int c = getState(); // 获取锁的开始，首先读 volatile 变量 state
+        if (c == 0) {
+            if (isFirst(current) && compareAndSetState(0, acquires)) {
+                setExclusiveOwnerThread(current);
+                return true;
+            }
+        } else if (current == getExclusiveOwnerThread()) {
+            int nextc = c + acquires;
+            if (nextc < 0)
+                throw new Error("Maximum lock count exceeded");
+            setState(nextc);
+            return true;
+        }
+        return false;
+    }
+}
+
+class FinalExample {
+    int i;// 普通变量 
+    final int j;// final 变量
+    static FinalExample obj;
+
+    public void FinalExample() { // 构造函数 
+        i = 1; // 写普通域 
+        j = 2; // 写 final 域
+
+    }
+
+    public static void writer() { // 写线程 A 执行
+
+        obj = new FinalExample();
+    }
+
+    public static void reader() { // 读线程 B 执行
+
+        FinalExample object = obj; // 读对象引用
+        int a = object.i; // 读普通域
+        int b = object.j; // 读 final 域
+
+    }
+}
+
+public class FinalReferenceExample {
+    final int[] intArray; // final 是引用类型
+    static FinalReferenceExample obj;
+
+    public FinalReferenceExample() { // 构造函数
+
+        intArray = new int[1];// 1
+        intArray[0] = 1;// 2
+    }
+
+    public static void writerOne() { // 写线程 A 执行
+        obj = new FinalReferenceExample(); // 3
+    }
+
+    public static void writerTwo() { // 写线程 B 执行
+        obj.intArray[0] = 2;// 4
+    }
+
+    public static void reader() { // 读线程 C 执行
+
+        if (obj != null) { // 5
+            int temp1 = obj.intArray[0]; // 6
+        }
+    }
+}
+
+public class FinalReferenceEscapeExample {
+    final int i;
+    static FinalReferenceEscapeExample obj;
+
+    public FinalReferenceEscapeExample() {
+        i = 1; // 1 写 final 域
+        obj = this; // 2 this 引用在此“逸出”
+    }
+
+    public static void writer() {
+        obj = new FinalReferenceEscapeExample();
+    }
+
+    public static void reader()
+    {
+
+        if (obj != null) { // 3
+            int temp = obj.i; // 4
+        }
+    }
+
+}
+```
+
+
